@@ -7,7 +7,7 @@ import RegisterForm from "./components/RegisterForm";
 import Analytics from "./components/Analytics";
 import io from "socket.io-client";
 
-const API_URL = "http://localhost:5000"; // Replace with your Render URL if deployed
+const API_URL = "https://polling-app-backend.onrender.com"; // Replace with your Render URL if deployed
 const socket = io(API_URL); // Connect to the Socket.IO server
 
 function App() {
