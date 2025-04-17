@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import html2canvas from 'html2canvas';
 import axios from "axios";
 import Poll from "./components/Poll";
 import PollForm from "./components/PollForm";
