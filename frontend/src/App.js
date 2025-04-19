@@ -8,7 +8,7 @@ import Analytics from "./components/Analytics";
 import io from "socket.io-client";
 
 // Backend API URL
-const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your deployed backend URL
+const API_URL = "https://polling-app-backend-scuj.onrender.com"; // Replace with your deployed backend URL
 
 function App() {
   const [polls, setPolls] = useState([]); // State to store all polls

@@ -31,7 +31,7 @@ ChartJS.register(
   Legend
 );
 
-const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your deployed backend URL
+const API_URL = "https://polling-app-backend-scuj.onrender.com"; // Replace with your deployed backend URL
 
 function Analytics() {
   const [analytics, setAnalytics] = useState(null);
