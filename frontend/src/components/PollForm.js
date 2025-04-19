@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import axios from "axios";
 
-const API_URL = "http://localhost:5000"; // Replace with your Render URL if deployed
+const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your Render URL if deployed
 
 function PollForm({ onPollCreated }) {
   const [question, setQuestion] = useState("");

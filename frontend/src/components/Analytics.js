@@ -31,7 +31,7 @@ ChartJS.register(
   Legend
 );
 
-const API_URL = "http://localhost:5000"; // Replace with your Render URL if deployed
+const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your Render URL if deployed
 
 function Analytics() {
   const [analytics, setAnalytics] = useState(null);

@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid"; // Import UUID generator
 
-const API_URL = "http://localhost:5000"; // Replace with your Render URL if deployed
+const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your Render URL if deployed
 
 function Poll({ poll, onDelete, onUpdate }) {
   const [selectedOption, setSelectedOption] = useState(null);
