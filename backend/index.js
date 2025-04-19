@@ -4,6 +4,7 @@ const bodyParser = require("body-parser");
 const Database = require("better-sqlite3");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 const http = require("http");
 const { Server } = require("socket.io");
@@ -12,8 +13,21 @@ const { Server } = require("socket.io");
 const app = express();
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.NODE_ENV === "production"
+    ? ["https://your-frontend-domain.com"] // Replace with your frontend domain
+    : "*",
+  methods: ["GET", "POST"],
+}));
 app.use(bodyParser.json());
+
+// Rate limiting for login and register routes
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+});
+app.use("/api/login", loginLimiter);
+app.use("/api/register", loginLimiter);
 
 // Initialize SQLite database
 const db = new Database("polls.db");
@@ -35,19 +49,25 @@ db.exec(`
   )
 `);
 
+// Create options table if it doesn't exist
 db.exec(`
   CREATE TABLE IF NOT EXISTS options (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     poll_id INTEGER NOT NULL,
     option TEXT NOT NULL,
     votes INTEGER DEFAULT 0,
+    voter_id TEXT, -- Added voter_id column for tracking votes
     FOREIGN KEY (poll_id) REFERENCES polls (id)
   )
 `);
 
 // Environment variables
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET || "supersecretkey";
+const JWT_SECRET = process.env.JWT_SECRET;
+
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET is not defined in environment variables.");
+}
 
 // Helper function to generate JWT
 function generateToken(user) {
@@ -73,7 +93,9 @@ function authenticateToken(req, res, next) {
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: "*", // Allow all origins (update this for production)
+    origin: process.env.NODE_ENV === "production"
+      ? ["https://your-frontend-domain.com"] // Replace with your frontend domain
+      : "*",
     methods: ["GET", "POST"],
   },
 });
@@ -82,18 +104,25 @@ const io = new Server(server, {
 io.on("connection", (socket) => {
   console.log("A client connected:", socket.id);
 
-  // Notify clients about new polls
+  // Ensure only authenticated users can emit events
   socket.on("newPoll", (poll) => {
+    if (!socket.user) {
+      return socket.emit("error", "Unauthorized");
+    }
     io.emit("pollCreated", poll);
   });
 
-  // Notify clients about updated polls
   socket.on("updatePoll", (updatedPoll) => {
+    if (!socket.user) {
+      return socket.emit("error", "Unauthorized");
+    }
     io.emit("pollUpdated", updatedPoll);
   });
 
-  // Notify clients about deleted polls
   socket.on("deletePoll", (pollId) => {
+    if (!socket.user) {
+      return socket.emit("error", "Unauthorized");
+    }
     io.emit("pollDeleted", pollId);
   });
 
@@ -103,7 +132,6 @@ io.on("connection", (socket) => {
 });
 
 // Routes
-
 // Health check endpoint
 app.get("/healthz", (req, res) => {
   res.status(200).json({ status: "OK" });
@@ -191,8 +219,6 @@ app.post("/api/polls", authenticateToken, (req, res) => {
   };
 
   res.status(201).json(newPoll);
-
-  // Notify clients about the new poll
   io.emit("pollCreated", newPoll);
 });
 
@@ -244,8 +270,6 @@ app.post("/api/polls/:id/vote", (req, res) => {
     };
 
     res.json(updatedPoll);
-
-    // Notify clients about the updated poll
     io.emit("pollUpdated", updatedPoll);
   } catch (error) {
     console.error("Error voting:", error);
@@ -258,8 +282,6 @@ app.delete("/api/polls/:id", authenticateToken, (req, res) => {
   const { id } = req.params;
 
   try {
-    console.log("Deleting poll with ID:", id);
-
     const deleteOptions = db.prepare("DELETE FROM options WHERE poll_id = ?");
     deleteOptions.run(id);
 
@@ -271,8 +293,6 @@ app.delete("/api/polls/:id", authenticateToken, (req, res) => {
     }
 
     res.json({ message: "Poll deleted successfully" });
-
-    // Notify clients about the deleted poll
     io.emit("pollDeleted", parseInt(id));
   } catch (error) {
     console.error("Error deleting poll:", error);
@@ -283,7 +303,6 @@ app.delete("/api/polls/:id", authenticateToken, (req, res) => {
 // Analytics endpoint
 app.get("/api/analytics", (req, res) => {
   try {
-    // Fetch all polls and their options
     const polls = db.prepare("SELECT * FROM polls").all();
     const fullPolls = polls.map((poll) => {
       const options = db
@@ -292,27 +311,26 @@ app.get("/api/analytics", (req, res) => {
       return { ...poll, options };
     });
 
-    // Calculate total votes
     const totalVotes = fullPolls.reduce(
       (sum, poll) =>
         sum + poll.options.reduce((optionSum, option) => optionSum + option.votes, 0),
       0
     );
 
-    // Find the most popular poll
-    const mostPopularPoll = fullPolls.reduce((maxPoll, currentPoll) => {
-      const currentTotalVotes = currentPoll.options.reduce(
-        (sum, option) => sum + option.votes,
-        0
-      );
-      const maxTotalVotes = maxPoll.options.reduce(
-        (sum, option) => sum + option.votes,
-        0
-      );
-      return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
-    }, fullPolls[0]);
+    const mostPopularPoll = fullPolls.length
+      ? fullPolls.reduce((maxPoll, currentPoll) => {
+          const currentTotalVotes = currentPoll.options.reduce(
+            (sum, option) => sum + option.votes,
+            0
+          );
+          const maxTotalVotes = maxPoll.options.reduce(
+            (sum, option) => sum + option.votes,
+            0
+          );
+          return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
+        }, fullPolls[0])
+      : null;
 
-    // Prepare vote trends
     const voteTrends = fullPolls.map((poll) => ({
       question: poll.question,
       options: poll.options.map((option) => ({
@@ -323,19 +341,27 @@ app.get("/api/analytics", (req, res) => {
 
     res.json({
       totalVotes,
-      mostPopularPoll: {
-        question: mostPopularPoll.question,
-        votes: mostPopularPoll.options.reduce(
-          (sum, option) => sum + option.votes,
-          0
-        ),
-      },
+      mostPopularPoll: mostPopularPoll
+        ? {
+            question: mostPopularPoll.question,
+            votes: mostPopularPoll.options.reduce(
+              (sum, option) => sum + option.votes,
+              0
+            ),
+          }
+        : null,
       voteTrends,
     });
   } catch (error) {
     console.error("Error fetching analytics:", error);
     res.status(500).json({ error: "Internal server error" });
   }
+});
+
+// Centralized error handling middleware
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // Start the server
