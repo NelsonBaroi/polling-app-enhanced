@@ -15,7 +15,7 @@ const app = express();
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === "production"
-    ? ["https://your-frontend-domain.com"] // Replace with your frontend domain
+    ? ["https://polling-app-frontend-afwx.onrender.com"] // Replace with your frontend domain
     : "*",
   methods: ["GET", "POST"],
 }));
@@ -94,7 +94,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === "production"
-      ? ["https://your-frontend-domain.com"] // Replace with your frontend domain
+      ? ["https://polling-app-frontend-afwx.onrender.com"] // Replace with your frontend domain
       : "*",
     methods: ["GET", "POST"],
   },

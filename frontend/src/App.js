@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from "react";
-import html2canvas from 'html2canvas';
 import axios from "axios";
 import Poll from "./components/Poll";
 import PollForm from "./components/PollForm";
@@ -8,28 +7,29 @@ import RegisterForm from "./components/RegisterForm";
 import Analytics from "./components/Analytics";
 import io from "socket.io-client";
 
-const API_URL = "https://polling-app-backend.onrender.com"; // Replace with your Render URL if deployed
+// Backend API URL
+const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your deployed backend URL
 const socket = io(API_URL); // Connect to the Socket.IO server
 
 function App() {
-  const [polls, setPolls] = useState([]);
-  const [token, setToken] = useState(localStorage.getItem("token") || null);
-  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [polls, setPolls] = useState([]); // State to store all polls
+  const [token, setToken] = useState(localStorage.getItem("token") || null); // Authentication token
+  const [showAnalytics, setShowAnalytics] = useState(false); // Toggle between polls and analytics view
 
-  // Fetch all polls on component mount
+  // Fetch all polls when the component mounts
   useEffect(() => {
     const fetchPolls = async () => {
       try {
         const response = await axios.get(`${API_URL}/api/polls`);
         setPolls(response.data);
       } catch (error) {
-        console.error("Error fetching polls:", error);
+        console.error("Error fetching polls:", error.response?.data || error.message);
       }
     };
     fetchPolls();
   }, []);
 
-  // Listen for real-time updates
+  // Listen for real-time updates via Socket.IO
   useEffect(() => {
     // Handle new poll creation
     socket.on("pollCreated", (newPoll) => {
@@ -48,6 +48,7 @@ function App() {
       setPolls((prevPolls) => prevPolls.filter((poll) => poll.id !== pollId));
     });
 
+    // Cleanup listeners on unmount
     return () => {
       socket.off("pollCreated");
       socket.off("pollUpdated");
@@ -66,8 +67,9 @@ function App() {
   };
 
   // Handle login
-  const handleLogin = () => {
-    setToken(localStorage.getItem("token"));
+  const handleLogin = (newToken) => {
+    localStorage.setItem("token", newToken);
+    setToken(newToken);
   };
 
   // Handle logout
@@ -85,11 +87,11 @@ function App() {
   });
 
   return (
-    <div className="container">
+    <div className="container" style={{ padding: "20px" }}>
       <h1>Polling App</h1>
 
-      {/* Navigation */}
-      <div style={{ display: "flex", justifyContent: "space-between" }}>
+      {/* Navigation Section */}
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
         {!token ? (
           <>
             <LoginForm onLogin={handleLogin} />
@@ -97,20 +99,28 @@ function App() {
           </>
         ) : (
           <>
-            <button onClick={handleLogout}>Logout</button>
-            <button onClick={() => setShowAnalytics(!showAnalytics)}>
+            <button onClick={handleLogout} style={{ padding: "10px 20px" }}>
+              Logout
+            </button>
+            <button
+              onClick={() => setShowAnalytics(!showAnalytics)}
+              style={{ padding: "10px 20px" }}
+            >
               {showAnalytics ? "Back to Polls" : "View Analytics"}
             </button>
           </>
         )}
       </div>
 
-      {/* Main Content */}
+      {/* Main Content Section */}
       {showAnalytics ? (
         <Analytics />
       ) : (
         <>
+          {/* Poll Creation Form (only visible to logged-in users) */}
           {token && <PollForm onPollCreated={handlePollCreated} />}
+
+          {/* Display Polls */}
           <div>
             {polls.length > 0 ? (
               polls.map((poll) => (
