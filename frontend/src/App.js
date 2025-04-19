@@ -1,94 +1,80 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import axios from "axios";
+import io from "socket.io-client";
+
 import Poll from "./components/Poll";
 import PollForm from "./components/PollForm";
 import LoginForm from "./components/LoginForm";
 import RegisterForm from "./components/RegisterForm";
 import Analytics from "./components/Analytics";
-import io from "socket.io-client";
 
-// Backend API URL
-const API_URL = "https://polling-app-backend-scuj.onrender.com"; // Replace with your deployed backend URL
+// Backend URL
+const API_URL = "https://polling-app-backend-scuj.onrender.com";
 
 function App() {
-  const [polls, setPolls] = useState([]); // State to store all polls
-  const [token, setToken] = useState(localStorage.getItem("token") || null); // Authentication token
-  const [showAnalytics, setShowAnalytics] = useState(false); // Toggle between polls and analytics view
+  const [polls, setPolls] = useState([]);
+  const [token, setToken] = useState(localStorage.getItem("token") || null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const socketRef = useRef(null);
 
-  // Initialize WebSocket connection with authentication
-  const socket = io(API_URL, {
-    auth: {
-      token: localStorage.getItem("token") || null,
-    },
-  });
+  // Add token to all axios requests
+  useEffect(() => {
+    axios.interceptors.request.use((config) => {
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+      }
+      return config;
+    });
+  }, [token]);
 
-  // Fetch all polls when the component mounts
+  // Fetch all polls once on mount
   useEffect(() => {
     const fetchPolls = async () => {
       try {
         const response = await axios.get(`${API_URL}/api/polls`);
         setPolls(response.data);
       } catch (error) {
-        console.error(
-          "Error fetching polls:",
-          error.response?.data?.error || error.message
-        );
+        console.error("Error fetching polls:", error.response?.data?.error || error.message);
       }
     };
     fetchPolls();
   }, []);
 
-  // Listen for real-time updates via Socket.IO
+  // Handle WebSocket connection
   useEffect(() => {
-    // Update the token in Socket.IO if it changes
-    if (token) {
-      socket.auth = { token };
-      socket.connect();
-    }
+    if (!token) return;
 
-    // Handle new poll creation
+    const socket = io(API_URL, {
+      auth: { token },
+      transports: ["websocket"],
+    });
+    socketRef.current = socket;
+
     socket.on("pollCreated", (newPoll) => {
-      setPolls((prevPolls) => [...prevPolls, newPoll]);
+      setPolls((prev) => [...prev, newPoll]);
     });
 
-    // Handle poll updates
     socket.on("pollUpdated", (updatedPoll) => {
-      setPolls((prevPolls) =>
-        prevPolls.map((poll) => (poll.id === updatedPoll.id ? updatedPoll : poll))
+      setPolls((prev) =>
+        prev.map((poll) => (poll.id === updatedPoll.id ? updatedPoll : poll))
       );
     });
 
-    // Handle poll deletion
     socket.on("pollDeleted", (pollId) => {
-      setPolls((prevPolls) => prevPolls.filter((poll) => poll.id !== pollId));
+      setPolls((prev) => prev.filter((poll) => poll.id !== pollId));
     });
 
-    // Handle unauthorized WebSocket connections
     socket.on("error", (error) => {
       console.error("WebSocket error:", error);
       if (error === "Authentication error") {
-        alert("You are not authorized to perform this action.");
+        alert("You are not authorized.");
       }
     });
 
-    // Cleanup listeners on unmount
     return () => {
-      socket.off("pollCreated");
-      socket.off("pollUpdated");
-      socket.off("pollDeleted");
-      socket.off("error");
+      socket.disconnect();
     };
   }, [token]);
-
-  // Handle poll creation
-  const handlePollCreated = (newPoll) => {
-    setPolls([...polls, newPoll]);
-  };
-
-  // Handle poll deletion
-  const handlePollDeleted = (deletedPollId) => {
-    setPolls(polls.filter((poll) => poll.id !== deletedPollId));
-  };
 
   // Handle login
   const handleLogin = (newToken) => {
@@ -100,22 +86,14 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem("token");
     setToken(null);
-    socket.disconnect(); // Disconnect WebSocket on logout
+    if (socketRef.current) socketRef.current.disconnect();
   };
-
-  // Add authorization header to Axios requests
-  axios.interceptors.request.use((config) => {
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  });
 
   return (
     <div className="container" style={{ padding: "20px" }}>
       <h1>Polling App</h1>
 
-      {/* Navigation Section */}
+      {/* Auth / Navigation */}
       <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
         {!token ? (
           <>
@@ -128,7 +106,7 @@ function App() {
               Logout
             </button>
             <button
-              onClick={() => setShowAnalytics(!showAnalytics)}
+              onClick={() => setShowAnalytics((prev) => !prev)}
               style={{ padding: "10px 20px" }}
             >
               {showAnalytics ? "Back to Polls" : "View Analytics"}
@@ -137,25 +115,25 @@ function App() {
         )}
       </div>
 
-      {/* Main Content Section */}
+      {/* Main Content */}
       {showAnalytics ? (
         <Analytics />
       ) : (
         <>
-          {/* Poll Creation Form (only visible to logged-in users) */}
-          {token && <PollForm onPollCreated={handlePollCreated} />}
+          {token && <PollForm onPollCreated={(newPoll) => setPolls([...polls, newPoll])} />}
 
-          {/* Display Polls */}
           <div>
             {polls.length > 0 ? (
               polls.map((poll) => (
                 <Poll
                   key={poll.id}
                   poll={poll}
-                  onDelete={handlePollDeleted}
+                  onDelete={(deletedId) =>
+                    setPolls((prev) => prev.filter((p) => p.id !== deletedId))
+                  }
                   onUpdate={(updatedPoll) =>
-                    setPolls(
-                      polls.map((p) => (p.id === updatedPoll.id ? updatedPoll : p))
+                    setPolls((prev) =>
+                      prev.map((p) => (p.id === updatedPoll.id ? updatedPoll : p))
                     )
                   }
                 />

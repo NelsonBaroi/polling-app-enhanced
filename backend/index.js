@@ -18,7 +18,7 @@ app.set("trust proxy", true);
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === "production"
-    ? ["https://polling-app-frontend-w3ep.onrender.com"] // Replace with your frontend domain
+    ? "https://polling-app-frontend-w3ep.onrender.com" // Replace with your frontend domain
     : "*",
   methods: ["GET", "POST"],
 }));
@@ -92,7 +92,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: process.env.NODE_ENV === "production"
-      ? ["https://polling-app-frontend-w3ep.onrender.com"] // Replace with your frontend domain
+      ? "https://polling-app-frontend-w3ep.onrender.com" // Replace with your frontend domain
       : "*",
     methods: ["GET", "POST"],
   },
