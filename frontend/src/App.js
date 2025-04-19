@@ -9,16 +9,18 @@ import io from "socket.io-client";
 
 // Backend API URL
 const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your deployed backend URL
-const socket = io(API_URL, {
-  auth: {
-    token: localStorage.getItem("token") || null,
-  },
-});
 
 function App() {
   const [polls, setPolls] = useState([]); // State to store all polls
   const [token, setToken] = useState(localStorage.getItem("token") || null); // Authentication token
   const [showAnalytics, setShowAnalytics] = useState(false); // Toggle between polls and analytics view
+
+  // Initialize WebSocket connection with authentication
+  const socket = io(API_URL, {
+    auth: {
+      token: localStorage.getItem("token") || null,
+    },
+  });
 
   // Fetch all polls when the component mounts
   useEffect(() => {
@@ -63,8 +65,8 @@ function App() {
 
     // Handle unauthorized WebSocket connections
     socket.on("error", (error) => {
-      console.error("Socket.IO error:", error);
-      if (error === "Unauthorized") {
+      console.error("WebSocket error:", error);
+      if (error === "Authentication error") {
         alert("You are not authorized to perform this action.");
       }
     });
@@ -80,12 +82,12 @@ function App() {
 
   // Handle poll creation
   const handlePollCreated = (newPoll) => {
-    setPolls((prevPolls) => [...prevPolls, newPoll]);
+    setPolls([...polls, newPoll]);
   };
 
   // Handle poll deletion
   const handlePollDeleted = (deletedPollId) => {
-    setPolls((prevPolls) => prevPolls.filter((poll) => poll.id !== deletedPollId));
+    setPolls(polls.filter((poll) => poll.id !== deletedPollId));
   };
 
   // Handle login
@@ -114,13 +116,7 @@ function App() {
       <h1>Polling App</h1>
 
       {/* Navigation Section */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          marginBottom: "20px",
-        }}
-      >
+      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
         {!token ? (
           <>
             <LoginForm onLogin={handleLogin} />

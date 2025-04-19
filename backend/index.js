@@ -12,6 +12,9 @@ const { Server } = require("socket.io");
 // Initialize Express app
 const app = express();
 
+// Trust the reverse proxy (e.g., Render.com)
+app.set("trust proxy", true);
+
 // Middleware
 app.use(cors({
   origin: process.env.NODE_ENV === "production"
@@ -78,7 +81,7 @@ function authenticateToken(req, res, next) {
   const token = authHeader && authHeader.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Access denied" });
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: "Invalid or expired token" });
+    if (err) return res.status(403).json({ error: "Invalid token" });
     req.user = user;
     next();
   });
@@ -95,7 +98,7 @@ const io = new Server(server, {
   },
 });
 
-// Socket.IO connection handler
+// Authenticate WebSocket connections using JWT
 io.use((socket, next) => {
   const token = socket.handshake.auth.token;
   if (!token) return next(new Error("Authentication error"));
@@ -106,18 +109,29 @@ io.use((socket, next) => {
   });
 });
 
+// Socket.IO connection handler
 io.on("connection", (socket) => {
   console.log("A client connected:", socket.id);
 
+  // Ensure only authenticated users can emit events
   socket.on("newPoll", (poll) => {
+    if (!socket.user) {
+      return socket.emit("error", "Unauthorized");
+    }
     io.emit("pollCreated", poll);
   });
 
   socket.on("updatePoll", (updatedPoll) => {
+    if (!socket.user) {
+      return socket.emit("error", "Unauthorized");
+    }
     io.emit("pollUpdated", updatedPoll);
   });
 
   socket.on("deletePoll", (pollId) => {
+    if (!socket.user) {
+      return socket.emit("error", "Unauthorized");
+    }
     io.emit("pollDeleted", pollId);
   });
 
@@ -146,9 +160,6 @@ app.post("/api/register", async (req, res) => {
     insertUser.run(username, hashedPassword);
     res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
-    if (error.message.includes("UNIQUE constraint failed")) {
-      return res.status(400).json({ error: "Username already exists" });
-    }
     console.error("Error registering user:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -192,29 +203,24 @@ app.get("/api/polls", (req, res) => {
 // Create a new poll (protected route)
 app.post("/api/polls", authenticateToken, (req, res) => {
   const { question, options } = req.body;
-  if (!question || !Array.isArray(options) || options.length < 2) {
+  if (!question || !options || !Array.isArray(options) || options.length < 2) {
     return res.status(400).json({ error: "Invalid poll data" });
   }
-  try {
-    const insertPoll = db.prepare("INSERT INTO polls (question) VALUES (?)");
-    const pollInfo = insertPoll.run(question);
-    options.forEach((option) => {
-      const insertOption = db.prepare(
-        "INSERT INTO options (poll_id, option) VALUES (?, ?)"
-      );
-      insertOption.run(pollInfo.lastInsertRowid, option);
-    });
-    const newPoll = {
-      id: pollInfo.lastInsertRowid,
-      question,
-      options: options.map((option) => ({ option, votes: 0 })),
-    };
-    res.status(201).json(newPoll);
-    io.emit("pollCreated", newPoll);
-  } catch (error) {
-    console.error("Error creating poll:", error);
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const insertPoll = db.prepare("INSERT INTO polls (question) VALUES (?)");
+  const pollInfo = insertPoll.run(question);
+  options.forEach((option) => {
+    const insertOption = db.prepare(
+      "INSERT INTO options (poll_id, option) VALUES (?, ?)"
+    );
+    insertOption.run(pollInfo.lastInsertRowid, option);
+  });
+  const newPoll = {
+    id: pollInfo.lastInsertRowid,
+    question,
+    options: options.map((option) => ({ option, votes: 0 })),
+  };
+  res.status(201).json(newPoll);
+  io.emit("pollCreated", newPoll);
 });
 
 // Vote on a poll
@@ -286,13 +292,6 @@ app.delete("/api/polls/:id", authenticateToken, (req, res) => {
 app.get("/api/analytics", (req, res) => {
   try {
     const polls = db.prepare("SELECT * FROM polls").all();
-    if (polls.length === 0) {
-      return res.json({
-        totalVotes: 0,
-        mostPopularPoll: null,
-        voteTrends: [],
-      });
-    }
     const fullPolls = polls.map((poll) => {
       const options = db
         .prepare("SELECT * FROM options WHERE poll_id = ?")
@@ -304,17 +303,19 @@ app.get("/api/analytics", (req, res) => {
         sum + poll.options.reduce((optionSum, option) => optionSum + option.votes, 0),
       0
     );
-    const mostPopularPoll = fullPolls.reduce((maxPoll, currentPoll) => {
-      const currentTotalVotes = currentPoll.options.reduce(
-        (sum, option) => sum + option.votes,
-        0
-      );
-      const maxTotalVotes = maxPoll.options.reduce(
-        (sum, option) => sum + option.votes,
-        0
-      );
-      return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
-    }, fullPolls[0]);
+    const mostPopularPoll = fullPolls.length
+      ? fullPolls.reduce((maxPoll, currentPoll) => {
+          const currentTotalVotes = currentPoll.options.reduce(
+            (sum, option) => sum + option.votes,
+            0
+          );
+          const maxTotalVotes = maxPoll.options.reduce(
+            (sum, option) => sum + option.votes,
+            0
+          );
+          return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
+        }, fullPolls[0])
+      : null;
     const voteTrends = fullPolls.map((poll) => ({
       question: poll.question,
       options: poll.options.map((option) => ({
@@ -324,13 +325,15 @@ app.get("/api/analytics", (req, res) => {
     }));
     res.json({
       totalVotes,
-      mostPopularPoll: {
-        question: mostPopularPoll.question,
-        votes: mostPopularPoll.options.reduce(
-          (sum, option) => sum + option.votes,
-          0
-        ),
-      },
+      mostPopularPoll: mostPopularPoll
+        ? {
+            question: mostPopularPoll.question,
+            votes: mostPopularPoll.options.reduce(
+              (sum, option) => sum + option.votes,
+              0
+            ),
+          }
+        : null,
       voteTrends,
     });
   } catch (error) {
@@ -342,7 +345,7 @@ app.get("/api/analytics", (req, res) => {
 // Centralized error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ error: err.message || "Internal server error" });
+  res.status(500).json({ error: "Internal server error" });
 });
 
 // Start the server
