@@ -1,73 +1,68 @@
+// src/components/Poll.js
+
 import React, { useState } from "react";
 import axios from "axios";
-import { v4 as uuidv4 } from "uuid"; // Import UUID generator
+import { v4 as uuidv4 } from "uuid";
 
-const API_URL = "https://polling-app-backend-scuj.onrender.com"; // Replace with your deployed backend URL
+const API_URL = process.env.REACT_APP_API_URL || "https://polling-app-backend-scuj.onrender.com";
 
 function Poll({ poll, onDelete, onUpdate }) {
-  const [selectedOption, setSelectedOption] = useState(null); // Tracks the selected option for voting
-  const [error, setError] = useState(null); // Tracks any errors during voting or deletion
+  const [selectedOption, setSelectedOption] = useState(null);
+  const [error, setError] = useState("");
 
-  // Generate or retrieve a unique voter ID for the browser
+  // Retrieve or generate a persistent voter ID
   const getVoterId = () => {
     let voterId = localStorage.getItem("voterId");
     if (!voterId) {
-      voterId = uuidv4(); // Generate a new UUID
-      localStorage.setItem("voterId", voterId); // Store it in localStorage
+      voterId = uuidv4();
+      localStorage.setItem("voterId", voterId);
     }
     return voterId;
   };
 
-  // Handle voting
   const handleVote = async () => {
     if (selectedOption === null) {
-      setError("Please select an option to vote.");
-      return;
+      return setError("Please select an option to vote.");
     }
 
     try {
-      setError(null); // Clear any previous error
-      const voterId = getVoterId(); // Retrieve or generate the voter ID
+      const voterId = getVoterId();
       const response = await axios.post(`${API_URL}/api/polls/${poll.id}/vote`, {
         optionIndex: selectedOption,
-        voterId, // Send the voter ID to the backend
+        voterId,
       });
-      onUpdate(response.data); // Update the parent component with the updated poll data
-      setSelectedOption(null); // Reset the selected option
+
+      onUpdate(response.data);
+      setSelectedOption(null);
+      setError("");
     } catch (err) {
       console.error("Error voting:", err);
-      if (err.response?.data?.error) {
-        setError(err.response.data.error); // Display the error message from the backend
-      } else {
-        setError("Failed to submit vote. Please try again.");
-      }
+      setError(err.response?.data?.error || "Failed to submit vote.");
     }
   };
 
-  // Handle deletion
   const handleDelete = async () => {
     try {
-      setError(null); // Clear any previous error
       await axios.delete(`${API_URL}/api/polls/${poll.id}`);
-      onDelete(poll.id); // Notify the parent component to remove the poll from the list
+      onDelete(poll.id);
     } catch (err) {
       console.error("Error deleting poll:", err);
-      setError("Failed to delete poll. Please try again.");
+      setError("Failed to delete poll.");
     }
   };
 
   return (
-    <div className="poll" style={{ border: "1px solid #ccc", padding: "16px", margin: "16px 0" }}>
+    <div className="poll-card">
       <h3>{poll.question}</h3>
       {poll.options.length > 0 ? (
-        <ul>
+        <ul className="poll-options">
           {poll.options.map((option, index) => (
             <li key={index}>
               <label>
                 <input
                   type="radio"
                   name={`poll-${poll.id}`}
-                  value={index}
+                  checked={selectedOption === index}
                   onChange={() => setSelectedOption(index)}
                 />
                 {option.option} ({option.votes} votes)
@@ -78,15 +73,17 @@ function Poll({ poll, onDelete, onUpdate }) {
       ) : (
         <p>No options available for this poll.</p>
       )}
-      <div style={{ marginTop: "10px" }}>
+
+      <div className="poll-actions">
         <button onClick={handleVote} disabled={poll.options.length === 0}>
           Vote
         </button>
-        <button onClick={handleDelete} style={{ marginLeft: "10px" }}>
+        <button onClick={handleDelete} className="delete-btn">
           Delete
         </button>
       </div>
-      {error && <p style={{ color: "red", marginTop: "10px" }}>{error}</p>}
+
+      {error && <p className="error-text">{error}</p>}
     </div>
   );
 }

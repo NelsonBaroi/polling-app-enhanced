@@ -1,98 +1,96 @@
 import React, { useState } from "react";
 import axios from "axios";
 
-const API_URL = "https://polling-app-backend-scuj.onrender.com"; // Replace with your deployed backend URL
+const API_URL = "https://polling-app-backend-scuj.onrender.com";
 
 function RegisterForm({ onRegister }) {
-  const [username, setUsername] = useState(""); // State for username input
-  const [password, setPassword] = useState(""); // State for password input
-  const [error, setError] = useState(null); // State to track errors
+  const [formData, setFormData] = useState({ username: "", password: "" });
+  const [error, setError] = useState(null);
 
-  // Handle form submission
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate inputs
-    if (!username.trim() || !password.trim()) {
+    if (!formData.username.trim() || !formData.password.trim()) {
       setError("Username and password are required.");
       return;
     }
 
     try {
-      setError(null); // Clear any previous error
-      await axios.post(`${API_URL}/api/register`, {
-        username,
-        password,
-      });
-
-      // Notify parent component of successful registration
+      setError(null);
+      await axios.post(`${API_URL}/api/register`, formData);
       onRegister();
-      setUsername(""); // Reset username field
-      setPassword(""); // Reset password field
+      setFormData({ username: "", password: "" });
     } catch (err) {
-      console.error("Error registering:", err);
-      setError(
-        err.response?.data?.error || "Failed to register. Please try again."
-      ); // Display error message from backend or fallback
+      console.error("Registration error:", err);
+      setError(err.response?.data?.error || "Failed to register. Please try again.");
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} style={{ border: "1px solid #ccc", padding: "16px", margin: "16px 0" }}>
+    <form
+      onSubmit={handleSubmit}
+      style={{
+        border: "1px solid #ccc",
+        padding: "16px",
+        margin: "16px 0",
+        borderRadius: "8px",
+        maxWidth: "400px",
+      }}
+    >
       <h2>Register</h2>
 
-      {/* Username Input */}
-      <div style={{ marginBottom: "16px" }}>
-        <label style={{ display: "block", marginBottom: "8px" }}>
-          Username:
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px",
-              marginTop: "4px",
-              boxSizing: "border-box",
-            }}
-          />
-        </label>
-      </div>
+      <label style={{ display: "block", marginBottom: "12px" }}>
+        Username:
+        <input
+          type="text"
+          name="username"
+          value={formData.username}
+          onChange={handleChange}
+          style={{
+            width: "100%",
+            padding: "8px",
+            marginTop: "4px",
+            boxSizing: "border-box",
+          }}
+        />
+      </label>
 
-      {/* Password Input */}
-      <div style={{ marginBottom: "16px" }}>
-        <label style={{ display: "block", marginBottom: "8px" }}>
-          Password:
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "8px",
-              marginTop: "4px",
-              boxSizing: "border-box",
-            }}
-          />
-        </label>
-      </div>
+      <label style={{ display: "block", marginBottom: "12px" }}>
+        Password:
+        <input
+          type="password"
+          name="password"
+          value={formData.password}
+          onChange={handleChange}
+          style={{
+            width: "100%",
+            padding: "8px",
+            marginTop: "4px",
+            boxSizing: "border-box",
+          }}
+        />
+      </label>
 
-      {/* Submit Button */}
       <button
         type="submit"
         style={{
           padding: "10px 20px",
           background: "#28a745",
-          color: "white",
+          color: "#fff",
           border: "none",
           cursor: "pointer",
+          borderRadius: "4px",
         }}
       >
         Register
       </button>
 
-      {/* Error Message */}
-      {error && <p style={{ color: "red", marginTop: "16px" }}>{error}</p>}
+      {error && <p style={{ color: "red", marginTop: "12px" }}>{error}</p>}
     </form>
   );
 }
