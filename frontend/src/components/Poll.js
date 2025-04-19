@@ -2,11 +2,11 @@ import React, { useState } from "react";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid"; // Import UUID generator
 
-const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your Render URL if deployed
+const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your deployed backend URL
 
 function Poll({ poll, onDelete, onUpdate }) {
-  const [selectedOption, setSelectedOption] = useState(null);
-  const [error, setError] = useState(null);
+  const [selectedOption, setSelectedOption] = useState(null); // Tracks the selected option for voting
+  const [error, setError] = useState(null); // Tracks any errors during voting or deletion
 
   // Generate or retrieve a unique voter ID for the browser
   const getVoterId = () => {
@@ -26,6 +26,7 @@ function Poll({ poll, onDelete, onUpdate }) {
     }
 
     try {
+      setError(null); // Clear any previous error
       const voterId = getVoterId(); // Retrieve or generate the voter ID
       const response = await axios.post(`${API_URL}/api/polls/${poll.id}/vote`, {
         optionIndex: selectedOption,
@@ -33,10 +34,9 @@ function Poll({ poll, onDelete, onUpdate }) {
       });
       onUpdate(response.data); // Update the parent component with the updated poll data
       setSelectedOption(null); // Reset the selected option
-      setError(null); // Clear any previous error
     } catch (err) {
       console.error("Error voting:", err);
-      if (err.response && err.response.data.error) {
+      if (err.response?.data?.error) {
         setError(err.response.data.error); // Display the error message from the backend
       } else {
         setError("Failed to submit vote. Please try again.");
@@ -47,6 +47,7 @@ function Poll({ poll, onDelete, onUpdate }) {
   // Handle deletion
   const handleDelete = async () => {
     try {
+      setError(null); // Clear any previous error
       await axios.delete(`${API_URL}/api/polls/${poll.id}`);
       onDelete(poll.id); // Notify the parent component to remove the poll from the list
     } catch (err) {
@@ -58,26 +59,34 @@ function Poll({ poll, onDelete, onUpdate }) {
   return (
     <div className="poll" style={{ border: "1px solid #ccc", padding: "16px", margin: "16px 0" }}>
       <h3>{poll.question}</h3>
-      <ul>
-        {poll.options.map((option, index) => (
-          <li key={index}>
-            <label>
-              <input
-                type="radio"
-                name={`poll-${poll.id}`}
-                value={index}
-                onChange={() => setSelectedOption(index)}
-              />
-              {option.option} ({option.votes} votes)
-            </label>
-          </li>
-        ))}
-      </ul>
-      <button onClick={handleVote} disabled={poll.options.length === 0}>
-        Vote
-      </button>
-      <button onClick={handleDelete}>Delete</button>
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {poll.options.length > 0 ? (
+        <ul>
+          {poll.options.map((option, index) => (
+            <li key={index}>
+              <label>
+                <input
+                  type="radio"
+                  name={`poll-${poll.id}`}
+                  value={index}
+                  onChange={() => setSelectedOption(index)}
+                />
+                {option.option} ({option.votes} votes)
+              </label>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p>No options available for this poll.</p>
+      )}
+      <div style={{ marginTop: "10px" }}>
+        <button onClick={handleVote} disabled={poll.options.length === 0}>
+          Vote
+        </button>
+        <button onClick={handleDelete} style={{ marginLeft: "10px" }}>
+          Delete
+        </button>
+      </div>
+      {error && <p style={{ color: "red", marginTop: "10px" }}>{error}</p>}
     </div>
   );
 }

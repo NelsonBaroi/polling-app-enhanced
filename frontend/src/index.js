@@ -5,6 +5,8 @@ import "./index.css";
 
 // Create a root for React 18+
 const root = ReactDOM.createRoot(document.getElementById("root"));
+
+// Render the application inside React.StrictMode for better debugging and warnings
 root.render(
   <React.StrictMode>
     <App />

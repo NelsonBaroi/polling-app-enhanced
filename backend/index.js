@@ -32,7 +32,7 @@ app.use("/api/register", loginLimiter);
 // Initialize SQLite database
 const db = new Database("polls.db");
 
-// Create users table if it doesn't exist
+// Create tables if they don't exist
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -40,16 +40,12 @@ db.exec(`
     password TEXT NOT NULL
   )
 `);
-
-// Create polls table if it doesn't exist
 db.exec(`
   CREATE TABLE IF NOT EXISTS polls (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     question TEXT NOT NULL
   )
 `);
-
-// Create options table if it doesn't exist
 db.exec(`
   CREATE TABLE IF NOT EXISTS options (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,9 +77,8 @@ function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
   if (!token) return res.status(401).json({ error: "Access denied" });
-
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: "Invalid token" });
+    if (err) return res.status(403).json({ error: "Invalid or expired token" });
     req.user = user;
     next();
   });
@@ -101,28 +96,28 @@ const io = new Server(server, {
 });
 
 // Socket.IO connection handler
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token;
+  if (!token) return next(new Error("Authentication error"));
+  jwt.verify(token, JWT_SECRET, (err, user) => {
+    if (err) return next(new Error("Authentication error"));
+    socket.user = user;
+    next();
+  });
+});
+
 io.on("connection", (socket) => {
   console.log("A client connected:", socket.id);
 
-  // Ensure only authenticated users can emit events
   socket.on("newPoll", (poll) => {
-    if (!socket.user) {
-      return socket.emit("error", "Unauthorized");
-    }
     io.emit("pollCreated", poll);
   });
 
   socket.on("updatePoll", (updatedPoll) => {
-    if (!socket.user) {
-      return socket.emit("error", "Unauthorized");
-    }
     io.emit("pollUpdated", updatedPoll);
   });
 
   socket.on("deletePoll", (pollId) => {
-    if (!socket.user) {
-      return socket.emit("error", "Unauthorized");
-    }
     io.emit("pollDeleted", pollId);
   });
 
@@ -143,7 +138,6 @@ app.post("/api/register", async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: "Username and password are required" });
   }
-
   try {
     const hashedPassword = await bcrypt.hash(password, 10);
     const insertUser = db.prepare(
@@ -152,6 +146,9 @@ app.post("/api/register", async (req, res) => {
     insertUser.run(username, hashedPassword);
     res.status(201).json({ message: "User registered successfully" });
   } catch (error) {
+    if (error.message.includes("UNIQUE constraint failed")) {
+      return res.status(400).json({ error: "Username already exists" });
+    }
     console.error("Error registering user:", error);
     res.status(500).json({ error: "Internal server error" });
   }
@@ -163,17 +160,14 @@ app.post("/api/login", (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: "Username and password are required" });
   }
-
   const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
   if (!user) {
     return res.status(401).json({ error: "Invalid username or password" });
   }
-
   const isMatch = bcrypt.compareSync(password, user.password);
   if (!isMatch) {
     return res.status(401).json({ error: "Invalid username or password" });
   }
-
   const token = generateToken(user);
   res.json({ token });
 });
@@ -198,54 +192,50 @@ app.get("/api/polls", (req, res) => {
 // Create a new poll (protected route)
 app.post("/api/polls", authenticateToken, (req, res) => {
   const { question, options } = req.body;
-  if (!question || !options || !Array.isArray(options) || options.length < 2) {
+  if (!question || !Array.isArray(options) || options.length < 2) {
     return res.status(400).json({ error: "Invalid poll data" });
   }
-
-  const insertPoll = db.prepare("INSERT INTO polls (question) VALUES (?)");
-  const pollInfo = insertPoll.run(question);
-
-  options.forEach((option) => {
-    const insertOption = db.prepare(
-      "INSERT INTO options (poll_id, option) VALUES (?, ?)"
-    );
-    insertOption.run(pollInfo.lastInsertRowid, option);
-  });
-
-  const newPoll = {
-    id: pollInfo.lastInsertRowid,
-    question,
-    options: options.map((option) => ({ option, votes: 0 })),
-  };
-
-  res.status(201).json(newPoll);
-  io.emit("pollCreated", newPoll);
+  try {
+    const insertPoll = db.prepare("INSERT INTO polls (question) VALUES (?)");
+    const pollInfo = insertPoll.run(question);
+    options.forEach((option) => {
+      const insertOption = db.prepare(
+        "INSERT INTO options (poll_id, option) VALUES (?, ?)"
+      );
+      insertOption.run(pollInfo.lastInsertRowid, option);
+    });
+    const newPoll = {
+      id: pollInfo.lastInsertRowid,
+      question,
+      options: options.map((option) => ({ option, votes: 0 })),
+    };
+    res.status(201).json(newPoll);
+    io.emit("pollCreated", newPoll);
+  } catch (error) {
+    console.error("Error creating poll:", error);
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // Vote on a poll
 app.post("/api/polls/:id/vote", (req, res) => {
   const { id } = req.params;
   const { optionIndex, voterId } = req.body;
-
   try {
     const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(id);
     if (!poll) {
       return res.status(404).json({ error: "Poll not found" });
     }
-
     // Check if the voter has already voted
     const existingVote = db
       .prepare("SELECT * FROM options WHERE poll_id = ? AND voter_id = ?")
       .get(id, voterId);
-
     if (existingVote) {
       return res.status(400).json({ error: "You have already voted in this poll" });
     }
-
     const options = db
       .prepare("SELECT * FROM options WHERE poll_id = ?")
       .all(id);
-
     if (
       typeof optionIndex !== "number" ||
       optionIndex < 0 ||
@@ -253,22 +243,18 @@ app.post("/api/polls/:id/vote", (req, res) => {
     ) {
       return res.status(400).json({ error: "Invalid option index" });
     }
-
     // Update the vote count and store the voter's ID
     const updateVotes = db.prepare(
       "UPDATE options SET votes = votes + 1, voter_id = ? WHERE id = ?"
     );
     updateVotes.run(voterId, options[optionIndex].id);
-
     const updatedOptions = db
       .prepare("SELECT * FROM options WHERE poll_id = ?")
       .all(id);
-
     const updatedPoll = {
       ...poll,
       options: updatedOptions,
     };
-
     res.json(updatedPoll);
     io.emit("pollUpdated", updatedPoll);
   } catch (error) {
@@ -280,18 +266,14 @@ app.post("/api/polls/:id/vote", (req, res) => {
 // Delete a poll (protected route)
 app.delete("/api/polls/:id", authenticateToken, (req, res) => {
   const { id } = req.params;
-
   try {
     const deleteOptions = db.prepare("DELETE FROM options WHERE poll_id = ?");
     deleteOptions.run(id);
-
     const deletePoll = db.prepare("DELETE FROM polls WHERE id = ?");
     const info = deletePoll.run(id);
-
     if (info.changes === 0) {
       return res.status(404).json({ error: "Poll not found" });
     }
-
     res.json({ message: "Poll deleted successfully" });
     io.emit("pollDeleted", parseInt(id));
   } catch (error) {
@@ -304,33 +286,35 @@ app.delete("/api/polls/:id", authenticateToken, (req, res) => {
 app.get("/api/analytics", (req, res) => {
   try {
     const polls = db.prepare("SELECT * FROM polls").all();
+    if (polls.length === 0) {
+      return res.json({
+        totalVotes: 0,
+        mostPopularPoll: null,
+        voteTrends: [],
+      });
+    }
     const fullPolls = polls.map((poll) => {
       const options = db
         .prepare("SELECT * FROM options WHERE poll_id = ?")
         .all(poll.id);
       return { ...poll, options };
     });
-
     const totalVotes = fullPolls.reduce(
       (sum, poll) =>
         sum + poll.options.reduce((optionSum, option) => optionSum + option.votes, 0),
       0
     );
-
-    const mostPopularPoll = fullPolls.length
-      ? fullPolls.reduce((maxPoll, currentPoll) => {
-          const currentTotalVotes = currentPoll.options.reduce(
-            (sum, option) => sum + option.votes,
-            0
-          );
-          const maxTotalVotes = maxPoll.options.reduce(
-            (sum, option) => sum + option.votes,
-            0
-          );
-          return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
-        }, fullPolls[0])
-      : null;
-
+    const mostPopularPoll = fullPolls.reduce((maxPoll, currentPoll) => {
+      const currentTotalVotes = currentPoll.options.reduce(
+        (sum, option) => sum + option.votes,
+        0
+      );
+      const maxTotalVotes = maxPoll.options.reduce(
+        (sum, option) => sum + option.votes,
+        0
+      );
+      return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
+    }, fullPolls[0]);
     const voteTrends = fullPolls.map((poll) => ({
       question: poll.question,
       options: poll.options.map((option) => ({
@@ -338,18 +322,15 @@ app.get("/api/analytics", (req, res) => {
         votes: option.votes,
       })),
     }));
-
     res.json({
       totalVotes,
-      mostPopularPoll: mostPopularPoll
-        ? {
-            question: mostPopularPoll.question,
-            votes: mostPopularPoll.options.reduce(
-              (sum, option) => sum + option.votes,
-              0
-            ),
-          }
-        : null,
+      mostPopularPoll: {
+        question: mostPopularPoll.question,
+        votes: mostPopularPoll.options.reduce(
+          (sum, option) => sum + option.votes,
+          0
+        ),
+      },
       voteTrends,
     });
   } catch (error) {
@@ -361,7 +342,7 @@ app.get("/api/analytics", (req, res) => {
 // Centralized error handling middleware
 app.use((err, req, res, next) => {
   console.error(err.stack);
-  res.status(500).json({ error: "Internal server error" });
+  res.status(500).json({ error: err.message || "Internal server error" });
 });
 
 // Start the server

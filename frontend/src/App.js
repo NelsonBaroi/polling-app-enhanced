@@ -9,7 +9,11 @@ import io from "socket.io-client";
 
 // Backend API URL
 const API_URL = "https://polling-app-backend-n6zk.onrender.com"; // Replace with your deployed backend URL
-const socket = io(API_URL); // Connect to the Socket.IO server
+const socket = io(API_URL, {
+  auth: {
+    token: localStorage.getItem("token") || null,
+  },
+});
 
 function App() {
   const [polls, setPolls] = useState([]); // State to store all polls
@@ -23,7 +27,10 @@ function App() {
         const response = await axios.get(`${API_URL}/api/polls`);
         setPolls(response.data);
       } catch (error) {
-        console.error("Error fetching polls:", error.response?.data || error.message);
+        console.error(
+          "Error fetching polls:",
+          error.response?.data?.error || error.message
+        );
       }
     };
     fetchPolls();
@@ -31,6 +38,12 @@ function App() {
 
   // Listen for real-time updates via Socket.IO
   useEffect(() => {
+    // Update the token in Socket.IO if it changes
+    if (token) {
+      socket.auth = { token };
+      socket.connect();
+    }
+
     // Handle new poll creation
     socket.on("pollCreated", (newPoll) => {
       setPolls((prevPolls) => [...prevPolls, newPoll]);
@@ -48,22 +61,31 @@ function App() {
       setPolls((prevPolls) => prevPolls.filter((poll) => poll.id !== pollId));
     });
 
+    // Handle unauthorized WebSocket connections
+    socket.on("error", (error) => {
+      console.error("Socket.IO error:", error);
+      if (error === "Unauthorized") {
+        alert("You are not authorized to perform this action.");
+      }
+    });
+
     // Cleanup listeners on unmount
     return () => {
       socket.off("pollCreated");
       socket.off("pollUpdated");
       socket.off("pollDeleted");
+      socket.off("error");
     };
-  }, []);
+  }, [token]);
 
   // Handle poll creation
   const handlePollCreated = (newPoll) => {
-    setPolls([...polls, newPoll]);
+    setPolls((prevPolls) => [...prevPolls, newPoll]);
   };
 
   // Handle poll deletion
   const handlePollDeleted = (deletedPollId) => {
-    setPolls(polls.filter((poll) => poll.id !== deletedPollId));
+    setPolls((prevPolls) => prevPolls.filter((poll) => poll.id !== deletedPollId));
   };
 
   // Handle login
@@ -76,6 +98,7 @@ function App() {
   const handleLogout = () => {
     localStorage.removeItem("token");
     setToken(null);
+    socket.disconnect(); // Disconnect WebSocket on logout
   };
 
   // Add authorization header to Axios requests
@@ -91,7 +114,13 @@ function App() {
       <h1>Polling App</h1>
 
       {/* Navigation Section */}
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: "20px" }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          marginBottom: "20px",
+        }}
+      >
         {!token ? (
           <>
             <LoginForm onLogin={handleLogin} />
