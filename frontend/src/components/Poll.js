@@ -1,16 +1,13 @@
-// src/components/Poll.js
-
 import React, { useState } from "react";
 import axios from "axios";
 import { v4 as uuidv4 } from "uuid";
 
-const API_URL = process.env.REACT_APP_API_URL || "https://polling-app-backend-scuj.onrender.com";
+const API_URL = process.env.REACT_APP_API_URL;
 
 function Poll({ poll, onDelete, onUpdate }) {
   const [selectedOption, setSelectedOption] = useState(null);
   const [error, setError] = useState("");
 
-  // Retrieve or generate a persistent voter ID
   const getVoterId = () => {
     let voterId = localStorage.getItem("voterId");
     if (!voterId) {
@@ -21,23 +18,19 @@ function Poll({ poll, onDelete, onUpdate }) {
   };
 
   const handleVote = async () => {
-    if (selectedOption === null) {
-      return setError("Please select an option to vote.");
-    }
-
+    if (selectedOption === null) return setError("Select an option to vote.");
     try {
       const voterId = getVoterId();
       const response = await axios.post(`${API_URL}/api/polls/${poll.id}/vote`, {
         optionIndex: selectedOption,
         voterId,
       });
-
       onUpdate(response.data);
       setSelectedOption(null);
       setError("");
     } catch (err) {
-      console.error("Error voting:", err);
-      setError(err.response?.data?.error || "Failed to submit vote.");
+      console.error("Voting error:", err);
+      setError("Could not submit vote.");
     }
   };
 
@@ -46,44 +39,34 @@ function Poll({ poll, onDelete, onUpdate }) {
       await axios.delete(`${API_URL}/api/polls/${poll.id}`);
       onDelete(poll.id);
     } catch (err) {
-      console.error("Error deleting poll:", err);
-      setError("Failed to delete poll.");
+      console.error("Delete error:", err);
+      setError("Could not delete poll.");
     }
   };
 
   return (
-    <div className="poll-card">
+    <div className="poll">
       <h3>{poll.question}</h3>
-      {poll.options.length > 0 ? (
-        <ul className="poll-options">
-          {poll.options.map((option, index) => (
-            <li key={index}>
-              <label>
-                <input
-                  type="radio"
-                  name={`poll-${poll.id}`}
-                  checked={selectedOption === index}
-                  onChange={() => setSelectedOption(index)}
-                />
-                {option.option} ({option.votes} votes)
-              </label>
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p>No options available for this poll.</p>
-      )}
-
-      <div className="poll-actions">
-        <button onClick={handleVote} disabled={poll.options.length === 0}>
-          Vote
-        </button>
-        <button onClick={handleDelete} className="delete-btn">
-          Delete
-        </button>
+      <ul>
+        {poll.options.map((option, i) => (
+          <li key={i}>
+            <label>
+              <input
+                type="radio"
+                name={`poll-${poll.id}`}
+                checked={selectedOption === i}
+                onChange={() => setSelectedOption(i)}
+              />
+              {option.option} ({option.votes} votes)
+            </label>
+          </li>
+        ))}
+      </ul>
+      <div>
+        <button onClick={handleVote}>Vote</button>
+        <button onClick={handleDelete}>Delete</button>
       </div>
-
-      {error && <p className="error-text">{error}</p>}
+      {error && <p className="error">{error}</p>}
     </div>
   );
 }

@@ -1,14 +1,13 @@
-const { override, addWebpackModuleRule } = require('customize-cra');
+const { override, addWebpackModuleRule } = require("customize-cra");
 
 module.exports = override(
-  // Add a rule to transpile `chart.js`
   addWebpackModuleRule({
     test: /\.js$/,
     include: /node_modules\/chart\.js/,
     use: {
-      loader: 'babel-loader',
+      loader: "babel-loader",
       options: {
-        presets: ['@babel/preset-env'],
+        presets: ["@babel/preset-env"],
       },
     },
   })

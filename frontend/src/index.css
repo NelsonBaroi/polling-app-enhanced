@@ -1,33 +1,28 @@
-/* General Reset */
 body {
   font-family: Arial, sans-serif;
   margin: 0;
   padding: 0;
   background-color: #f4f4f9;
-  color: #333; /* Default text color */
-  line-height: 1.6; /* Better readability */
+  color: #333;
+  line-height: 1.6;
 }
 
-/* Centered Container */
 .container {
   max-width: 800px;
   margin: 0 auto;
   padding: 20px;
 }
 
-/* Headings */
 h1 {
   text-align: center;
+  margin-bottom: 20px;
   color: #333;
-  margin-bottom: 20px; /* Add spacing below headings */
 }
 
 h2 {
   color: #555;
-  margin-top: 0; /* Remove default top margin for subheadings */
 }
 
-/* Buttons */
 button {
   background-color: #007bff;
   color: white;
@@ -35,8 +30,8 @@ button {
   padding: 10px 15px;
   cursor: pointer;
   border-radius: 5px;
-  font-size: 1rem; /* Ensure consistent button text size */
-  transition: background-color 0.3s ease; /* Smooth hover effect */
+  font-size: 1rem;
+  transition: background-color 0.3s ease;
 }
 
 button:hover {
@@ -44,19 +39,18 @@ button:hover {
 }
 
 button:disabled {
-  background-color: #ccc; /* Style for disabled buttons */
+  background-color: #ccc;
   cursor: not-allowed;
 }
 
-/* Forms */
 form div {
-  margin-bottom: 15px; /* Increase spacing between form elements */
+  margin-bottom: 15px;
 }
 
 label {
   display: block;
   margin-bottom: 5px;
-  font-weight: bold; /* Make labels stand out */
+  font-weight: bold;
 }
 
 input[type="text"],
@@ -65,63 +59,59 @@ input[type="password"] {
   padding: 10px;
   border: 1px solid #ccc;
   border-radius: 5px;
-  font-size: 1rem; /* Consistent input text size */
-  box-sizing: border-box; /* Include padding in width calculation */
+  font-size: 1rem;
+  box-sizing: border-box;
 }
 
 input:focus {
-  border-color: #007bff; /* Highlight input fields on focus */
+  border-color: #007bff;
   outline: none;
-  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5); /* Subtle focus effect */
+  box-shadow: 0 0 5px rgba(0, 123, 255, 0.5);
 }
 
-/* Poll Cards */
 .poll {
   background-color: #fff;
   border: 1px solid #ddd;
   border-radius: 5px;
   padding: 15px;
   margin-bottom: 20px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); /* Add subtle shadow for depth */
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
 .poll h3 {
-  margin-top: 0; /* Remove default top margin for poll titles */
+  margin-top: 0;
 }
 
 .poll ul {
-  list-style-type: none; /* Remove bullet points */
+  list-style-type: none;
   padding: 0;
 }
 
 .poll li {
-  margin-bottom: 10px; /* Space between options */
+  margin-bottom: 10px;
 }
 
-/* Chart Container */
 .chart-container {
   background-color: #fff;
   border: 1px solid #ddd;
   border-radius: 5px;
   padding: 20px;
   margin-bottom: 20px;
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1); /* Add subtle shadow for depth */
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
 }
 
-/* Error Messages */
 p.error {
   color: red;
-  font-size: 0.9rem; /* Smaller text for errors */
-  margin-top: 10px; /* Space above error messages */
+  font-size: 0.9rem;
+  margin-top: 10px;
 }
 
-/* Export Buttons */
 button.export-pdf,
 button.export-image {
-  background-color: #28a745; /* Green for export actions */
+  background-color: #28a745;
 }
 
 button.export-pdf:hover,
 button.export-image:hover {
-  background-color: #1e7e34; /* Darker green on hover */
+  background-color: #1e7e34;
 }

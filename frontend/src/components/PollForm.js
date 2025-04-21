@@ -1,9 +1,7 @@
-// src/components/PollForm.js
-
 import React, { useState } from "react";
 import axios from "axios";
 
-const API_URL = process.env.REACT_APP_API_URL || "https://polling-app-backend-scuj.onrender.com";
+const API_URL = process.env.REACT_APP_API_URL;
 
 function PollForm({ onPollCreated }) {
   const [question, setQuestion] = useState("");
@@ -13,90 +11,60 @@ function PollForm({ onPollCreated }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    const trimmedQuestion = question.trim();
     const validOptions = options.map((opt) => opt.trim()).filter(Boolean);
-
-    if (!trimmedQuestion) {
-      return setError("Question is required.");
-    }
-
-    if (validOptions.length < 2) {
-      return setError("At least two valid options are required.");
-    }
+    if (!question.trim()) return setError("Question is required.");
+    if (validOptions.length < 2) return setError("At least two options are required.");
 
     try {
       const response = await axios.post(`${API_URL}/api/polls`, {
-        question: trimmedQuestion,
+        question: question.trim(),
         options: validOptions,
       });
-
       onPollCreated(response.data);
       setQuestion("");
       setOptions(["", ""]);
       setError("");
     } catch (err) {
       console.error("Error creating poll:", err);
-      setError("Failed to create poll. Please try again.");
+      setError("Failed to create poll.");
     }
   };
 
-  const handleOptionChange = (index, value) => {
+  const updateOption = (i, value) => {
     const updated = [...options];
-    updated[index] = value;
+    updated[i] = value;
     setOptions(updated);
   };
 
-  const addOption = () => {
-    setOptions([...options, ""]);
-  };
-
-  const removeOption = (index) => {
-    if (options.length > 2) {
-      setOptions(options.filter((_, i) => i !== index));
-    } else {
-      setError("You must have at least two options.");
-    }
+  const addOption = () => setOptions([...options, ""]);
+  const removeOption = (i) => {
+    if (options.length > 2) setOptions(options.filter((_, index) => index !== i));
   };
 
   return (
-    <form onSubmit={handleSubmit} className="poll-form">
-      <h2>Create a New Poll</h2>
-
-      <div className="form-group">
+    <form onSubmit={handleSubmit} style={{ border: "1px solid #ccc", padding: "16px", marginBottom: "20px" }}>
+      <h2>Create New Poll</h2>
+      <div>
         <label>Question:</label>
-        <input
-          type="text"
-          value={question}
-          onChange={(e) => setQuestion(e.target.value)}
-          placeholder="Enter your poll question"
-        />
+        <input type="text" value={question} onChange={(e) => setQuestion(e.target.value)} />
       </div>
-
-      <div className="form-group">
+      <div>
         <label>Options:</label>
-        {options.map((option, index) => (
-          <div key={index} className="option-input">
+        {options.map((opt, i) => (
+          <div key={i} style={{ display: "flex", gap: "8px", marginBottom: "8px" }}>
             <input
               type="text"
-              value={option}
-              onChange={(e) => handleOptionChange(index, e.target.value)}
-              placeholder={`Option ${index + 1}`}
+              value={opt}
+              onChange={(e) => updateOption(i, e.target.value)}
+              style={{ flex: 1 }}
             />
-            <button type="button" onClick={() => removeOption(index)} className="remove-btn">
-              Remove
-            </button>
+            {options.length > 2 && <button type="button" onClick={() => removeOption(i)}>Remove</button>}
           </div>
         ))}
-        <button type="button" onClick={addOption} className="add-btn">
-          Add Option
-        </button>
+        <button type="button" onClick={addOption}>Add Option</button>
       </div>
-
-      <button type="submit" className="submit-btn">
-        Create Poll
-      </button>
-
-      {error && <p className="error-text">{error}</p>}
+      <button type="submit">Create Poll</button>
+      {error && <p className="error">{error}</p>}
     </form>
   );
 }

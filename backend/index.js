@@ -1,354 +1,241 @@
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const Database = require("better-sqlite3");
-const bcrypt = require("bcryptjs");
-const jwt = require("jsonwebtoken");
-const rateLimit = require("express-rate-limit");
-require("dotenv").config();
 const http = require("http");
 const { Server } = require("socket.io");
+const dotenv = require("dotenv");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const rateLimit = require("express-rate-limit");
+const Database = require("better-sqlite3");
 
-// Initialize Express app
+// Load environment variables
+dotenv.config();
+
+// Initialize Express app and server
 const app = express();
-
-// Trust the reverse proxy (e.g., Render.com)
-app.set("trust proxy", true);
-
-// Middleware
-app.use(cors({
-  origin: process.env.NODE_ENV === "production"
-    ? "https://polling-app-frontend-w3ep.onrender.com" // Replace with your frontend domain
-    : "*",
-  methods: ["GET", "POST"],
-}));
-app.use(bodyParser.json());
-
-// Rate limiting for login and register routes
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-});
-app.use("/api/login", loginLimiter);
-app.use("/api/register", loginLimiter);
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
 
 // Initialize SQLite database
-const db = new Database("polls.db");
-
-// Create tables if they don't exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT NOT NULL UNIQUE,
-    password TEXT NOT NULL
-  )
-`);
-db.exec(`
-  CREATE TABLE IF NOT EXISTS polls (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    question TEXT NOT NULL
-  )
-`);
-db.exec(`
-  CREATE TABLE IF NOT EXISTS options (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    poll_id INTEGER NOT NULL,
-    option TEXT NOT NULL,
-    votes INTEGER DEFAULT 0,
-    voter_id TEXT, -- Added voter_id column for tracking votes
-    FOREIGN KEY (poll_id) REFERENCES polls (id)
-  )
-`);
-
-// Environment variables
+const db = new Database(process.env.DATABASE_PATH || "polls.db");
 const PORT = process.env.PORT || 5000;
-const JWT_SECRET = process.env.JWT_SECRET;
+const JWT_SECRET = process.env.JWT_SECRET || "secret";
 
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET is not defined in environment variables.");
-}
+// Middleware
+app.use(cors());
+app.use(bodyParser.json());
 
-// Helper function to generate JWT
-function generateToken(user) {
-  return jwt.sign({ id: user.id, username: user.username }, JWT_SECRET, {
-    expiresIn: "1h",
-  });
-}
+// Rate limiting to prevent abuse
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+});
+app.use(limiter);
 
-// Helper function to authenticate JWT
+// Initialize DB tables
+const initializeDatabase = () => {
+  try {
+    // Create users table
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        username TEXT UNIQUE NOT NULL,
+        password TEXT NOT NULL
+      );
+    `).run();
+
+    // Create polls table
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS polls (
+        id TEXT PRIMARY KEY,
+        question TEXT NOT NULL,
+        created_by TEXT NOT NULL
+      );
+    `).run();
+
+    // Create options table
+    db.prepare(`
+      CREATE TABLE IF NOT EXISTS options (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        poll_id TEXT,
+        option TEXT,
+        votes INTEGER DEFAULT 0
+      );
+    `).run();
+
+    console.log("Database initialized successfully.");
+  } catch (err) {
+    console.error("Error initializing database:", err);
+    process.exit(1);
+  }
+};
+
+initializeDatabase();
+
+// Authentication Middleware
 function authenticateToken(req, res, next) {
   const authHeader = req.headers["authorization"];
   const token = authHeader && authHeader.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Access denied" });
+  if (!token) return res.status(401).json({ error: "Access denied." });
   jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.status(403).json({ error: "Invalid token" });
+    if (err) return res.status(403).json({ error: "Invalid token." });
     req.user = user;
     next();
   });
 }
 
-// Create HTTP server and attach Socket.IO
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: process.env.NODE_ENV === "production"
-      ? "https://polling-app-frontend-w3ep.onrender.com" // Replace with your frontend domain
-      : "*",
-    methods: ["GET", "POST"],
-  },
-});
-
-// Authenticate WebSocket connections using JWT
-io.use((socket, next) => {
-  const token = socket.handshake.auth.token;
-  if (!token) return next(new Error("Authentication error"));
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return next(new Error("Authentication error"));
-    socket.user = user;
-    next();
-  });
-});
-
-// Socket.IO connection handler
-io.on("connection", (socket) => {
-  console.log("A client connected:", socket.id);
-
-  // Ensure only authenticated users can emit events
-  socket.on("newPoll", (poll) => {
-    if (!socket.user) {
-      return socket.emit("error", "Unauthorized");
-    }
-    io.emit("pollCreated", poll);
-  });
-
-  socket.on("updatePoll", (updatedPoll) => {
-    if (!socket.user) {
-      return socket.emit("error", "Unauthorized");
-    }
-    io.emit("pollUpdated", updatedPoll);
-  });
-
-  socket.on("deletePoll", (pollId) => {
-    if (!socket.user) {
-      return socket.emit("error", "Unauthorized");
-    }
-    io.emit("pollDeleted", pollId);
-  });
-
-  socket.on("disconnect", () => {
-    console.log("A client disconnected:", socket.id);
-  });
-});
+// Helper Functions
+const getPollsWithOptions = () => {
+  const polls = db.prepare("SELECT * FROM polls").all();
+  const options = db.prepare("SELECT * FROM options").all();
+  return polls.map(poll => ({
+    ...poll,
+    options: options.filter(opt => opt.poll_id === poll.id),
+  }));
+};
 
 // Routes
-// Health check endpoint
-app.get("/healthz", (req, res) => {
-  res.status(200).json({ status: "OK" });
-});
 
-// Register a new user
+// User Registration
 app.post("/api/register", async (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: "Username and password are required" });
-  }
   try {
+    const { username, password } = req.body;
+    if (!username || !password) {
+      return res.status(400).json({ error: "Username and password are required." });
+    }
     const hashedPassword = await bcrypt.hash(password, 10);
-    const insertUser = db.prepare(
-      "INSERT INTO users (username, password) VALUES (?, ?)"
+    const userId = require("crypto").randomUUID();
+    db.prepare("INSERT INTO users (id, username, password) VALUES (?, ?, ?)").run(
+      userId,
+      username,
+      hashedPassword
     );
-    insertUser.run(username, hashedPassword);
-    res.status(201).json({ message: "User registered successfully" });
-  } catch (error) {
-    console.error("Error registering user:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.status(201).json({ message: "User registered successfully." });
+  } catch (err) {
+    console.error("Registration error:", err);
+    res.status(500).json({ error: "Failed to register user." });
   }
 });
 
-// Log in a user
-app.post("/api/login", (req, res) => {
-  const { username, password } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ error: "Username and password are required" });
+// User Login
+app.post("/api/login", async (req, res) => {
+  try {
+    const { username, password } = req.body;
+    const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
+    if (!user || !(await bcrypt.compare(password, user.password))) {
+      return res.status(401).json({ error: "Invalid credentials." });
+    }
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: "1h" });
+    res.json({ token });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ error: "Failed to login." });
   }
-  const user = db.prepare("SELECT * FROM users WHERE username = ?").get(username);
-  if (!user) {
-    return res.status(401).json({ error: "Invalid username or password" });
-  }
-  const isMatch = bcrypt.compareSync(password, user.password);
-  if (!isMatch) {
-    return res.status(401).json({ error: "Invalid username or password" });
-  }
-  const token = generateToken(user);
-  res.json({ token });
 });
 
-// Get all polls
+// Fetch All Polls
 app.get("/api/polls", (req, res) => {
   try {
-    const polls = db.prepare("SELECT * FROM polls").all();
-    const fullPolls = polls.map((poll) => {
-      const options = db
-        .prepare("SELECT * FROM options WHERE poll_id = ?")
-        .all(poll.id);
-      return { ...poll, options };
-    });
-    res.json(fullPolls);
-  } catch (error) {
-    console.error("Error fetching polls:", error);
-    res.status(500).json({ error: "Internal server error" });
+    const polls = getPollsWithOptions();
+    res.json(polls);
+  } catch (err) {
+    console.error("Error fetching polls:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Create a new poll (protected route)
+// Create a New Poll
 app.post("/api/polls", authenticateToken, (req, res) => {
-  const { question, options } = req.body;
-  if (!question || !options || !Array.isArray(options) || options.length < 2) {
-    return res.status(400).json({ error: "Invalid poll data" });
-  }
-  const insertPoll = db.prepare("INSERT INTO polls (question) VALUES (?)");
-  const pollInfo = insertPoll.run(question);
-  options.forEach((option) => {
-    const insertOption = db.prepare(
-      "INSERT INTO options (poll_id, option) VALUES (?, ?)"
+  try {
+    const { question, options } = req.body;
+    if (!question || !Array.isArray(options) || options.length < 2) {
+      return res.status(400).json({ error: "Invalid input. A poll must have a question and at least two options." });
+    }
+    const pollId = require("crypto").randomUUID();
+    db.prepare("INSERT INTO polls (id, question, created_by) VALUES (?, ?, ?)").run(
+      pollId,
+      question,
+      req.user.userId
     );
-    insertOption.run(pollInfo.lastInsertRowid, option);
-  });
-  const newPoll = {
-    id: pollInfo.lastInsertRowid,
-    question,
-    options: options.map((option) => ({ option, votes: 0 })),
-  };
-  res.status(201).json(newPoll);
-  io.emit("pollCreated", newPoll);
+    const insertOption = db.prepare("INSERT INTO options (poll_id, option) VALUES (?, ?)");
+    options.forEach(opt => insertOption.run(pollId, opt));
+    const newPoll = {
+      id: pollId,
+      question,
+      options: options.map(opt => ({ option: opt, votes: 0 })),
+    };
+    io.emit("pollUpdated", newPoll);
+    res.status(201).json(newPoll);
+  } catch (err) {
+    console.error("Error creating poll:", err);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
 });
 
-// Vote on a poll
+// Vote on a Poll
 app.post("/api/polls/:id/vote", (req, res) => {
-  const { id } = req.params;
-  const { optionIndex, voterId } = req.body;
   try {
-    const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(id);
-    if (!poll) {
-      return res.status(404).json({ error: "Poll not found" });
-    }
-    // Check if the voter has already voted
-    const existingVote = db
-      .prepare("SELECT * FROM options WHERE poll_id = ? AND voter_id = ?")
-      .get(id, voterId);
-    if (existingVote) {
-      return res.status(400).json({ error: "You have already voted in this poll" });
-    }
-    const options = db
-      .prepare("SELECT * FROM options WHERE poll_id = ?")
-      .all(id);
-    if (
-      typeof optionIndex !== "number" ||
-      optionIndex < 0 ||
-      optionIndex >= options.length
-    ) {
-      return res.status(400).json({ error: "Invalid option index" });
-    }
-    // Update the vote count and store the voter's ID
-    const updateVotes = db.prepare(
-      "UPDATE options SET votes = votes + 1, voter_id = ? WHERE id = ?"
-    );
-    updateVotes.run(voterId, options[optionIndex].id);
-    const updatedOptions = db
-      .prepare("SELECT * FROM options WHERE poll_id = ?")
-      .all(id);
+    const { optionIndex, voterId } = req.body;
+    const pollId = req.params.id;
+    const options = db.prepare("SELECT * FROM options WHERE poll_id = ?").all(pollId);
+    if (!options[optionIndex]) return res.status(400).json({ error: "Invalid option index" });
+    db.prepare("UPDATE options SET votes = votes + 1 WHERE id = ?").run(options[optionIndex].id);
+    const poll = db.prepare("SELECT * FROM polls WHERE id = ?").get(pollId);
+    const updatedOptions = db.prepare("SELECT * FROM options WHERE poll_id = ?").all(pollId);
     const updatedPoll = {
       ...poll,
       options: updatedOptions,
     };
-    res.json(updatedPoll);
     io.emit("pollUpdated", updatedPoll);
-  } catch (error) {
-    console.error("Error voting:", error);
-    res.status(500).json({ error: "Internal server error" });
+    res.json(updatedPoll);
+  } catch (err) {
+    console.error("Error voting on poll:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Delete a poll (protected route)
+// Delete a Poll
 app.delete("/api/polls/:id", authenticateToken, (req, res) => {
-  const { id } = req.params;
   try {
-    const deleteOptions = db.prepare("DELETE FROM options WHERE poll_id = ?");
-    deleteOptions.run(id);
-    const deletePoll = db.prepare("DELETE FROM polls WHERE id = ?");
-    const info = deletePoll.run(id);
-    if (info.changes === 0) {
-      return res.status(404).json({ error: "Poll not found" });
-    }
-    res.json({ message: "Poll deleted successfully" });
-    io.emit("pollDeleted", parseInt(id));
-  } catch (error) {
-    console.error("Error deleting poll:", error);
-    res.status(500).json({ error: "Internal server error" });
+    const pollId = req.params.id;
+    db.prepare("DELETE FROM options WHERE poll_id = ?").run(pollId);
+    db.prepare("DELETE FROM polls WHERE id = ?").run(pollId);
+    res.sendStatus(204);
+  } catch (err) {
+    console.error("Error deleting poll:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
 });
 
-// Analytics endpoint
+// Analytics Route
 app.get("/api/analytics", (req, res) => {
   try {
     const polls = db.prepare("SELECT * FROM polls").all();
-    const fullPolls = polls.map((poll) => {
-      const options = db
-        .prepare("SELECT * FROM options WHERE poll_id = ?")
-        .all(poll.id);
-      return { ...poll, options };
+    const options = db.prepare("SELECT * FROM options").all();
+    const enriched = polls.map(poll => {
+      const pollOptions = options.filter(opt => opt.poll_id === poll.id);
+      return {
+        question: poll.question,
+        options: pollOptions.map(opt => ({
+          option: opt.option,
+          votes: opt.votes,
+        })),
+      };
     });
-    const totalVotes = fullPolls.reduce(
-      (sum, poll) =>
-        sum + poll.options.reduce((optionSum, option) => optionSum + option.votes, 0),
-      0
-    );
-    const mostPopularPoll = fullPolls.length
-      ? fullPolls.reduce((maxPoll, currentPoll) => {
-          const currentTotalVotes = currentPoll.options.reduce(
-            (sum, option) => sum + option.votes,
-            0
-          );
-          const maxTotalVotes = maxPoll.options.reduce(
-            (sum, option) => sum + option.votes,
-            0
-          );
-          return currentTotalVotes > maxTotalVotes ? currentPoll : maxPoll;
-        }, fullPolls[0])
-      : null;
-    const voteTrends = fullPolls.map((poll) => ({
-      question: poll.question,
-      options: poll.options.map((option) => ({
-        option: option.option,
-        votes: option.votes,
-      })),
-    }));
-    res.json({
-      totalVotes,
-      mostPopularPoll: mostPopularPoll
-        ? {
-            question: mostPopularPoll.question,
-            votes: mostPopularPoll.options.reduce(
-              (sum, option) => sum + option.votes,
-              0
-            ),
-          }
-        : null,
-      voteTrends,
-    });
-  } catch (error) {
-    console.error("Error fetching analytics:", error);
-    res.status(500).json({ error: "Internal server error" });
+    const totalVotes = options.reduce((acc, opt) => acc + opt.votes, 0);
+    const mostPopularPoll = enriched.reduce((max, poll) => {
+      const sum = poll.options.reduce((a, o) => a + o.votes, 0);
+      return sum > (max?.votes || 0) ? { question: poll.question, votes: sum } : max;
+    }, null);
+    res.json({ totalVotes, mostPopularPoll, voteTrends: enriched });
+  } catch (err) {
+    console.error("Error fetching analytics:", err);
+    res.status(500).json({ error: "Internal Server Error" });
   }
-});
-
-// Centralized error handling middleware
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ error: "Internal server error" });
 });
 
 // Start the server
 server.listen(PORT, () => {
-  console.log(`Backend server running on port ${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });

@@ -1,19 +1,18 @@
-FROM node:22-bullseye
+# Stage 1: Build the app
+FROM node:22-bullseye AS builder
 
-# Set working directory
+# Set the working directory
 WORKDIR /app
 
-# Copy only package.json and package-lock.json first (for better layer caching)
+# Install dependencies
 COPY package*.json ./
-
-# Install dependencies, including better-sqlite3
 RUN npm install --build-from-source
 
-# Copy the rest of your application
+# Copy source code
 COPY . .
 
-# Expose port
+# Expose the backend port
 EXPOSE 5000
 
-# Start the app
+# Start the server
 CMD ["node", "index.js"]

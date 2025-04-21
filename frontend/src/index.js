@@ -1,8 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import "./index.css";
 
-// Create root and render the App component inside StrictMode
 const rootElement = document.getElementById("root");
 
 if (rootElement) {
@@ -13,5 +13,5 @@ if (rootElement) {
     </React.StrictMode>
   );
 } else {
-  console.error("❌ Root element not found. Ensure your index.html contains a div with id='root'.");
+  console.error("❌ Root element not found. Check index.html.");
 }

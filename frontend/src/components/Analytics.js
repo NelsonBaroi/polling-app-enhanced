@@ -1,10 +1,6 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
-import {
-  Bar,
-  Pie,
-  Line,
-} from "react-chartjs-2"; // Import different chart types
+import { Bar, Pie, Line } from "react-chartjs-2";
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -19,7 +15,6 @@ import {
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 
-// Register required components
 ChartJS.register(
   CategoryScale,
   LinearScale,
@@ -31,53 +26,47 @@ ChartJS.register(
   Legend
 );
 
-const API_URL = "https://polling-app-backend-scuj.onrender.com"; // Replace with your deployed backend URL
+const API_URL = process.env.REACT_APP_API_URL;
 
 function Analytics() {
   const [analytics, setAnalytics] = useState(null);
-  const [chartType, setChartType] = useState("bar"); // Default chart type
+  const [chartType, setChartType] = useState("bar");
 
-  // Fetch analytics data on component mount
   useEffect(() => {
-    const fetchAnalytics = async () => {
+    const fetchData = async () => {
       try {
-        const response = await axios.get(`${API_URL}/api/analytics`);
-        if (response.data.voteTrends.length === 0) {
+        const res = await axios.get(`${API_URL}/api/analytics`);
+        if (res.data.voteTrends.length === 0) {
           setAnalytics({ totalVotes: 0, mostPopularPoll: null, voteTrends: [] });
         } else {
-          setAnalytics(response.data);
+          setAnalytics(res.data);
         }
-      } catch (error) {
-        console.error("Error fetching analytics:", error.response?.data || error.message);
+      } catch (err) {
+        console.error("Analytics error:", err);
       }
     };
-    fetchAnalytics();
+    fetchData();
   }, []);
 
-  // Handle empty or missing analytics data
-  if (!analytics) {
-    return <p>Loading analytics...</p>;
-  }
-
+  if (!analytics) return <p>Loading analytics...</p>;
   if (analytics.voteTrends.length === 0) {
     return (
       <div className="container">
         <h1>Analytics Dashboard</h1>
-        <p>No polls available to display analytics.</p>
+        <p>No polls available for analytics.</p>
       </div>
     );
   }
 
-  // Prepare chart data for vote trends
   const voteTrendsData = {
     labels: analytics.voteTrends.flatMap((poll) =>
-      poll.options.map((option) => `${poll.question} - ${option.option}`)
+      poll.options.map((opt) => `${poll.question} - ${opt.option}`)
     ),
     datasets: [
       {
         label: "Votes",
         data: analytics.voteTrends.flatMap((poll) =>
-          poll.options.map((option) => option.votes)
+          poll.options.map((opt) => opt.votes)
         ),
         backgroundColor: ["#007bff", "#28a745", "#ffc107", "#dc3545"],
         borderColor: ["#007bff", "#28a745", "#ffc107", "#dc3545"],
@@ -89,17 +78,11 @@ function Analytics() {
   const voteTrendsOptions = {
     responsive: true,
     plugins: {
-      legend: {
-        position: "top",
-      },
-      title: {
-        display: true,
-        text: "Vote Trends",
-      },
+      legend: { position: "top" },
+      title: { display: true, text: "Vote Trends" },
     },
   };
 
-  // Render the selected chart type
   const renderChart = () => {
     switch (chartType) {
       case "bar":
@@ -113,58 +96,39 @@ function Analytics() {
     }
   };
 
-  // Export analytics data as a PDF
   const exportAsPDF = () => {
     const doc = new jsPDF();
+    doc.setFontSize(18).text("Polling App Analytics", 10, 10);
+    doc.setFontSize(14).text(`Total Votes: ${analytics.totalVotes}`, 10, 20);
 
-    // Add title
-    doc.setFontSize(18);
-    doc.text("Polling App Analytics", 10, 10);
-
-    // Add total votes
-    doc.setFontSize(14);
-    doc.text(`Total Votes: ${analytics.totalVotes}`, 10, 20);
-
-    // Add most popular poll
     if (analytics.mostPopularPoll) {
-      doc.setFontSize(14);
       doc.text(
         `Most Popular Poll: ${analytics.mostPopularPoll.question} (${analytics.mostPopularPoll.votes} votes)`,
         10,
         30
       );
     } else {
-      doc.setFontSize(14);
       doc.text("No popular poll available.", 10, 30);
     }
 
-    // Add vote trends
-    doc.setFontSize(14);
     doc.text("Vote Trends:", 10, 40);
-    let yOffset = 50;
     analytics.voteTrends.forEach((poll, index) => {
-      doc.text(
-        `- ${poll.question}: ${poll.options
-          .map((option) => `${option.option} (${option.votes} votes)`)
-          .join(", ")}`,
-        10,
-        yOffset + index * 10
-      );
+      const line = `- ${poll.question}: ${poll.options
+        .map((o) => `${o.option} (${o.votes})`)
+        .join(", ")}`;
+      doc.text(line, 10, 50 + index * 10);
     });
 
-    // Save the PDF
     doc.save("polling-analytics.pdf");
   };
 
-  // Export chart as an image (PNG)
   const exportChartAsImage = () => {
-    const chartContainer = document.querySelector(".chart-container");
-
-    if (chartContainer) {
-      html2canvas(chartContainer).then((canvas) => {
-        const imgData = canvas.toDataURL("image/png");
+    const chart = document.querySelector(".chart-container");
+    if (chart) {
+      html2canvas(chart).then((canvas) => {
+        const img = canvas.toDataURL("image/png");
         const link = document.createElement("a");
-        link.href = imgData;
+        link.href = img;
         link.download = "polling-chart.png";
         link.click();
       });
@@ -175,13 +139,11 @@ function Analytics() {
     <div className="container" style={{ padding: "20px" }}>
       <h1>Analytics Dashboard</h1>
 
-      {/* Total Votes */}
       <div style={{ marginBottom: "20px" }}>
         <h2>Total Votes</h2>
         <p>{analytics.totalVotes}</p>
       </div>
 
-      {/* Most Popular Poll */}
       <div style={{ marginBottom: "20px" }}>
         <h2>Most Popular Poll</h2>
         {analytics.mostPopularPoll ? (
@@ -198,7 +160,6 @@ function Analytics() {
         )}
       </div>
 
-      {/* Export Buttons */}
       <div style={{ marginBottom: "20px" }}>
         <button onClick={exportAsPDF} style={{ marginRight: "10px" }}>
           Export as PDF
@@ -206,7 +167,6 @@ function Analytics() {
         <button onClick={exportChartAsImage}>Export Chart as Image</button>
       </div>
 
-      {/* Chart Type Selector */}
       <div style={{ marginBottom: "20px" }}>
         <label htmlFor="chartType" style={{ marginRight: "10px" }}>
           Select Chart Type:
@@ -215,7 +175,6 @@ function Analytics() {
           id="chartType"
           value={chartType}
           onChange={(e) => setChartType(e.target.value)}
-          style={{ padding: "5px" }}
         >
           <option value="bar">Bar Chart</option>
           <option value="pie">Pie Chart</option>
@@ -223,13 +182,9 @@ function Analytics() {
         </select>
       </div>
 
-      {/* Vote Trends Chart */}
       <div>
         <h2>Vote Trends</h2>
-        <div
-          className="chart-container"
-          style={{ maxWidth: "600px", margin: "0 auto" }}
-        >
+        <div className="chart-container" style={{ maxWidth: "600px", margin: "0 auto" }}>
           {renderChart()}
         </div>
       </div>
